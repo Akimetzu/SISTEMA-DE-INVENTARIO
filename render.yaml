@@ -1,0 +1,19 @@
+# Configuración de Blueprint para Render (render.yaml)
+# Este archivo permite desplegar la aplicación completa con un solo clic en Render.
+
+services:
+  - type: web
+    name: chainstock-erp
+    runtime: node
+    plan: free # Puedes cambiarlo a 'starter' para escala de producción
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true # Genera un valor aleatorio seguro de 16 caracteres automáticamente
+      - key: SUPABASE_URL
+        sync: false # Pide al usuario que ingrese su URL de Supabase durante la creación si usa DB real
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false # Pide al usuario que ingrese su service-role key de Supabase

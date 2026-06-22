@@ -1,0 +1,6 @@
+{
+  "name": "ChainStock ERP",
+  "description": "Sistema Web de Gestión de Inventario con Trazabilidad Blockchain",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
