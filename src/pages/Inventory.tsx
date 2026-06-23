@@ -14,18 +14,25 @@ interface InventoryProps {
   loadInitialData: () => Promise<void>;
 }
 
-export default function Inventory({ 
-  currentUser, 
-  products, 
-  setProducts, 
-  addTransaction, 
-  signTransactionBlock, 
-  loadInitialData 
+export default function Inventory({
+  currentUser,
+  products,
+  setProducts,
+  addTransaction,
+  signTransactionBlock,
+  loadInitialData
 }: InventoryProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
+
+  // Advanced Enterprise Inventory Filters State
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterCategory, setFilterCategory] = useState('todos');
+  const [filterStockStatus, setFilterStockStatus] = useState('todos'); // 'todos', 'normal', 'stock_bajo', 'agotado'
+  const [filterMinPrice, setFilterMinPrice] = useState('');
+  const [filterMaxPrice, setFilterMaxPrice] = useState('');
 
   const [productForm, setProductForm] = useState({
     sku: '',
@@ -37,10 +44,37 @@ export default function Inventory({
     umbral_stock_bajo: 5
   });
 
-  const filtered = products.filter(p => 
-    p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    p.sku.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Dynamically extract distinct categories from the active products list
+  const availableCategories = Array.from(new Set(products.map(p => p.categoria))).filter(Boolean) as string[];
+
+  const filtered = products.filter(p => {
+    // 1. Text Search Filter (SKU, name, or description)
+    const matchesSearch = p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.descripcion && p.descripcion.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    // 2. Category Filter
+    const matchesCategory = filterCategory === 'todos' || p.categoria === filterCategory;
+
+    // 3. Stock Status Filter (Normal, Low Stock, Out of Stock)
+    const stockActual = p.inventario?.stock_actual || 0;
+    const umbralStockBajo = p.inventario?.umbral_stock_bajo || 0;
+    let matchesStock = true;
+    if (filterStockStatus === 'agotado') {
+      matchesStock = stockActual === 0;
+    } else if (filterStockStatus === 'stock_bajo') {
+      matchesStock = stockActual > 0 && stockActual <= umbralStockBajo;
+    } else if (filterStockStatus === 'normal') {
+      matchesStock = stockActual > umbralStockBajo;
+    }
+
+    // 4. Price Boundaries Filter
+    const minP = filterMinPrice !== '' ? parseFloat(filterMinPrice) : -1;
+    const maxP = filterMaxPrice !== '' ? parseFloat(filterMaxPrice) : Infinity;
+    const matchesPrice = (minP === -1 || p.precio >= minP) && (p.precio <= maxP);
+
+    return matchesSearch && matchesCategory && matchesStock && matchesPrice;
+  });
 
   const openAddModal = () => {
     if (currentUser.rol !== 'admin') return;
@@ -205,12 +239,12 @@ export default function Inventory({
         await loadInitialData();
         alert("¡Nuevo producto registrado y confirmado en Blockchain de manera exitosa!");
       }
-    setShowModal(false);
-  } catch (err: any) {
-    console.error("Product save aborted or failed:", err);
-    alert(err.message || "Operación cancelada. No se han guardado los cambios en la base de datos ni en el sistema.");
-  }
-};
+      setShowModal(false);
+    } catch (err: any) {
+      console.error("Product save aborted or failed:", err);
+      alert(err.message || "Operación cancelada. No se han guardado los cambios en la base de datos ni en el sistema.");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -227,11 +261,18 @@ export default function Inventory({
           />
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <button className="flex-1 sm:flex-none px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center justify-center gap-2 transition-colors">
-            <Filter className="w-4 h-4" /> Filtros
+          <button
+            type="button"
+            onClick={() => setShowFilters(!showFilters)}
+            className={cn(
+              "flex-1 sm:flex-none px-4 py-2 bg-white border text-slate-700 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors",
+              showFilters ? "border-blue-500 text-blue-600 bg-blue-50/50" : "border-slate-200 hover:bg-slate-50"
+            )}
+          >
+            <Filter className="w-4 h-4" /> Filtros {(filterCategory !== 'todos' || filterStockStatus !== 'todos' || filterMinPrice !== '' || filterMaxPrice !== '') ? '●' : ''}
           </button>
           {currentUser.rol === 'admin' && (
-            <button 
+            <button
               onClick={openAddModal}
               className="flex-1 sm:flex-none px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center justify-center gap-2 transition-colors shadow-sm"
             >
@@ -240,6 +281,77 @@ export default function Inventory({
           )}
         </div>
       </div>
+
+      {/* Advanced collapsible custom filters panel */}
+      {showFilters && (
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-in fade-in duration-200">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Categoría</label>
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="todos">Todas las categorías</option>
+              {availableCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Estado de Stock</label>
+            <select
+              value={filterStockStatus}
+              onChange={(e) => setFilterStockStatus(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="todos">Todos los estados</option>
+              <option value="normal">Stock Normal</option>
+              <option value="stock_bajo">Stock Bajo (≤ Mínimo)</option>
+              <option value="agotado">Agotado (0 unidades)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Precio Mínimo ($)</label>
+            <input
+              type="number"
+              placeholder="Min"
+              min="0"
+              value={filterMinPrice}
+              onChange={(e) => setFilterMinPrice(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="relative">
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Precio Máximo ($)</label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                placeholder="Max"
+                min="0"
+                value={filterMaxPrice}
+                onChange={(e) => setFilterMaxPrice(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1"
+              />
+              {(filterCategory !== 'todos' || filterStockStatus !== 'todos' || filterMinPrice !== '' || filterMaxPrice !== '') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterCategory('todos');
+                    setFilterStockStatus('todos');
+                    setFilterMinPrice('');
+                    setFilterMaxPrice('');
+                  }}
+                  className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-medium transition-colors"
+                  title="Limpiar filtros"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Data Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -261,7 +373,7 @@ export default function Inventory({
                 const umbralStockBajo = product.inventario?.umbral_stock_bajo || 0;
                 const isLowStock = stockActual <= umbralStockBajo;
                 const isOutOfStock = stockActual === 0;
-                
+
                 return (
                   <tr key={product.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="py-4 px-6">
@@ -301,14 +413,14 @@ export default function Inventory({
                     <td className="py-4 px-6 text-right">
                       {currentUser.rol === 'admin' ? (
                         <div className="flex items-center justify-end gap-2">
-                          <button 
+                          <button
                             onClick={() => openEditModal(product)}
                             className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                             title="Editar"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button 
+                          <button
                             onClick={() => confirmDeleteProduct(product.id)}
                             className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             title="Eliminar"
@@ -340,47 +452,47 @@ export default function Inventory({
               <h3 className="font-semibold text-slate-800">
                 {editingProductId ? 'Editar Producto' : 'Añadir Nuevo Producto'}
               </h3>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSaveProduct} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">SKU</label>
-                  <input required type="text" value={productForm.sku} onChange={e => setProductForm({...productForm, sku: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="ej. PRD-001" />
+                  <input required type="text" value={productForm.sku} onChange={e => setProductForm({ ...productForm, sku: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="ej. PRD-001" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Categoría</label>
-                  <input required type="text" value={productForm.categoria} onChange={e => setProductForm({...productForm, categoria: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="ej. Electrónica" />
+                  <input required type="text" value={productForm.categoria} onChange={e => setProductForm({ ...productForm, categoria: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="ej. Electrónica" />
                 </div>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Nombre del Producto</label>
-                <input required type="text" value={productForm.nombre} onChange={e => setProductForm({...productForm, nombre: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nombre completo" />
+                <input required type="text" value={productForm.nombre} onChange={e => setProductForm({ ...productForm, nombre: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nombre completo" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Descripción</label>
-                <textarea rows={2} value={productForm.descripcion} onChange={e => setProductForm({...productForm, descripcion: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" placeholder="Descripción breve..." />
+                <textarea rows={2} value={productForm.descripcion} onChange={e => setProductForm({ ...productForm, descripcion: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" placeholder="Descripción breve..." />
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Precio ($)</label>
                   <input required type="number" min="0" step="0.01" value={isNaN(productForm.precio) ? '' : productForm.precio} onChange={e => {
                     const val = parseFloat(e.target.value);
-                    setProductForm({...productForm, precio: isNaN(val) ? '' as any : val});
+                    setProductForm({ ...productForm, precio: isNaN(val) ? '' as any : val });
                   }} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Stock Actual</label>
                   <input required type="number" min="0" value={isNaN(productForm.stock_actual) ? '' : productForm.stock_actual} onChange={e => {
                     const val = parseInt(e.target.value, 10);
-                    setProductForm({...productForm, stock_actual: isNaN(val) ? '' as any : val});
+                    setProductForm({ ...productForm, stock_actual: isNaN(val) ? '' as any : val });
                   }} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Stock Mínimo</label>
                   <input required type="number" min="0" value={isNaN(productForm.umbral_stock_bajo) ? '' : productForm.umbral_stock_bajo} onChange={e => {
                     const val = parseInt(e.target.value, 10);
-                    setProductForm({...productForm, umbral_stock_bajo: isNaN(val) ? '' as any : val});
+                    setProductForm({ ...productForm, umbral_stock_bajo: isNaN(val) ? '' as any : val });
                   }} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>

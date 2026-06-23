@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuditBlock } from '../types';
-import { Shield, Fingerprint, Lock, CheckCircle2, Wallet, ExternalLink, Copy, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { Shield, Fingerprint, Lock, CheckCircle2, Wallet, ExternalLink, Copy, Check, ChevronDown, ChevronUp, Search, Filter, X } from 'lucide-react';
 
 interface AuditProps {
   auditLogs: AuditBlock[];
@@ -8,6 +8,10 @@ interface AuditProps {
 
 export default function Audit({ auditLogs }: AuditProps) {
   const [inIframe, setInIframe] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterType, setFilterType] = useState('todos'); // 'todos', 'IN', 'OUT', 'AJUSTE'
+  const [filterNetwork, setFilterNetwork] = useState('todos');
 
   useEffect(() => {
     try {
@@ -18,6 +22,31 @@ export default function Audit({ auditLogs }: AuditProps) {
       setInIframe(true);
     }
   }, []);
+
+  // Dynamic networks (e.g. SEPOLIA TESTNET)
+  const availableNetworks = Array.from(new Set(auditLogs.map(b => b.red_blockchain))).filter(Boolean) as string[];
+
+  const filteredLogs = auditLogs.filter(block => {
+    let parsedData = null;
+    try {
+      if (block.datos) parsedData = JSON.parse(block.datos);
+    } catch { /* ignore */ }
+
+    const txType = block.transaccion_tipo || parsedData?.tipo_transaccion || 'OPERACION';
+
+    const matchesSearch = 
+      (block.detalles || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (block.hash_actual || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (block.hash_anterior || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (block.hash_transaccion || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (block.usuario || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (block.datos || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesType = filterType === 'todos' || txType === filterType;
+    const matchesNetwork = filterNetwork === 'todos' || block.red_blockchain === filterNetwork;
+
+    return matchesSearch && matchesType && matchesNetwork;
+  });
 
   return (
     <div className="space-y-6">
@@ -62,6 +91,73 @@ export default function Audit({ auditLogs }: AuditProps) {
         </div>
       )}
 
+      {/* Advanced Blockchain Explorer Custom Filters panel */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+        <div className="relative max-w-md w-full">
+          <Search className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Buscar por bloque, hash, detalles de auditoría..."
+            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <button 
+            type="button"
+            onClick={() => setShowFilters(!showFilters)}
+            className="w-full sm:w-auto px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center justify-center gap-2 transition-colors shadow-xs"
+          >
+            <Filter className="w-4 h-4" /> Filtros {(filterType !== 'todos' || filterNetwork !== 'todos') ? '●' : ''}
+          </button>
+        </div>
+      </div>
+
+      {showFilters && (
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 sm:grid-cols-3 gap-4 animate-in fade-in duration-200">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Tipo de Auditoría</label>
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="todos">Todos los tipos</option>
+              <option value="IN">Entradas (IN)</option>
+              <option value="OUT">Salidas (OUT)</option>
+              <option value="AJUSTE">Ajustes / Otros</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Red Blockchain</label>
+            <select
+              value={filterNetwork}
+              onChange={(e) => setFilterNetwork(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="todos">Todas las Redes</option>
+              {availableNetworks.map(net => (
+                <option key={net} value={net}>{net}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end">
+            {(filterType !== 'todos' || filterNetwork !== 'todos') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterType('todos');
+                  setFilterNetwork('todos');
+                }}
+                className="w-full px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+              >
+                <X className="w-4 h-4" /> Limpiar Filtros
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Block Explorer Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -86,7 +182,7 @@ export default function Audit({ auditLogs }: AuditProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {auditLogs.map((block) => {
+              {filteredLogs.map((block) => {
                 let parsedData = null;
                 try {
                   if (block.datos) parsedData = JSON.parse(block.datos);
@@ -144,6 +240,11 @@ export default function Audit({ auditLogs }: AuditProps) {
             </tbody>
           </table>
         </div>
+        {filteredLogs.length === 0 && (
+          <div className="p-8 text-center text-slate-500 text-sm">
+            No se encontraron bloques en la auditoría con los criterios de búsqueda aplicados.
+          </div>
+        )}
       </div>
     </div>
   );
